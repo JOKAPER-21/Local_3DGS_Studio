@@ -1,0 +1,25 @@
+# Captured data and generated 3DGS output
+**/rawData/
+**/renders/
+**/logs/
+**/colmap/
+**/export/
+**/images/
+**/lichtFeld/
+
+# Local archives and generated Python files
+*.zip
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+
+# Large binary artifacts
+*.db
+*.bin
+*.ply
+*.mp4
+*.mov
+*.sog
+*.spz

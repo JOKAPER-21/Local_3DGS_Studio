@@ -1,0 +1,118 @@
+{
+  "application": {
+    "name": "Local3DGSStudio",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "testNumber01",
+    "version": "v01",
+    "createdAt": "2026-09-17T10:16:26+00:00",
+    "modifiedAt": "2026-09-20T18:50:51+00:00"
+  },
+  "paths": {
+    "rawData": "rawData",
+    "images": "rawData/images/v01",
+    "videos": "rawData/videos",
+    "colmap": "colmap/v01",
+    "lichtFeld": "lichtFeld/v01",
+    "pointCloudExport": "export/pointCloud",
+    "splatsExport": "export/splats",
+    "renders": "renders",
+    "logs": "logs"
+  },
+  "externalSoftware": {
+    "colmap": {
+      "path": ""
+    },
+    "lichtfeld": {
+      "path": ""
+    },
+    "ffmpeg": {
+      "path": ""
+    }
+  },
+  "input": {
+    "imageCount": 293,
+    "videoCount": 0,
+    "activeImageVersion": "v01"
+  },
+  "colmap": {
+    "activeVersion": "v01",
+    "database": "colmap/v01/database.db",
+    "sparseModel": "colmap/v01/sparse/0",
+    "registeredImages": 0,
+    "sparsePoints": 0,
+    "observations": 0,
+    "meanTrackLength": 0,
+    "meanReprojectionError": 0,
+    "state": "DATABASE_CREATED",
+    "lastRun": "2026-09-20T18:39:00+00:00",
+    "featureExtraction": {
+      "completed": true,
+      "useGPU": false,
+      "numThreads": 4
+    },
+    "featureMatching": {
+      "completed": true,
+      "method": "exhaustive",
+      "useGPU": false
+    },
+    "mapper": {
+      "completed": true
+    },
+    "analysis": {
+      "completed": true
+    }
+  },
+  "lichtfeld": {
+    "trainingStatus": "notStarted",
+    "iteration": 0,
+    "numSplats": 0
+  },
+  "export": {
+    "pointCloud": [],
+    "splats": [],
+    "html": [],
+    "usd": [],
+    "spz": [],
+    "sog": []
+  },
+  "render": {
+    "renderCount": 0
+  },
+  "validation": {
+    "lastValidationTime": "2026-09-20T18:45:54+00:00",
+    "validationStatus": "VALID",
+    "totalImages": 293,
+    "validImages": 293,
+    "warningImages": 0,
+    "invalidImages": 0,
+    "duplicateImages": 0
+  },
+  "reconstructionQC": {
+    "lastCheckedAt": "2026-09-20T18:50:37+00:00",
+    "state": "FAILED",
+    "totalImages": 0,
+    "registeredImages": 0,
+    "registrationPercentage": 0.0,
+    "cameras": 0,
+    "registeredCameras": 0,
+    "frames": 0,
+    "registeredFrames": 0,
+    "points": 0,
+    "observations": 0,
+    "meanTrackLength": null,
+    "meanObservationsPerImage": null,
+    "meanReprojectionErrorPx": null,
+    "cameraModels": [],
+    "distortedCameraModels": [],
+    "requiredFilesPresent": false,
+    "databaseValid": true,
+    "imageSourceValid": true,
+    "metricsParsed": false,
+    "warnings": [],
+    "errors": [
+      "Required sparse model files (cameras.bin, images.bin, points3D.bin) are missing or empty."
+    ]
+  }
+}

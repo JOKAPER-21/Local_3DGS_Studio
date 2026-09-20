@@ -1,0 +1,121 @@
+{
+  "application": {
+    "name": "Local3DGSStudio",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "l3dgsstudioTest03",
+    "version": "v01",
+    "createdAt": "2026-09-18T21:34:01+00:00",
+    "modifiedAt": "2026-09-19T11:51:03+00:00"
+  },
+  "paths": {
+    "rawData": "rawData",
+    "images": "rawData/images/v01",
+    "videos": "rawData/videos",
+    "colmap": "colmap/v01",
+    "lichtFeld": "lichtFeld/v01",
+    "pointCloudExport": "export/pointCloud",
+    "splatsExport": "export/splats",
+    "renders": "renders",
+    "logs": "logs"
+  },
+  "externalSoftware": {
+    "colmap": {
+      "path": ""
+    },
+    "lichtfeld": {
+      "path": ""
+    },
+    "ffmpeg": {
+      "path": ""
+    }
+  },
+  "input": {
+    "imageCount": 293,
+    "videoCount": 0,
+    "activeImageVersion": "v01"
+  },
+  "colmap": {
+    "activeVersion": "v01",
+    "database": "colmap/v01/database.db",
+    "sparseModel": "colmap/v01/sparse/0",
+    "state": "ANALYZED",
+    "lastRun": "2026-09-19T03:29:04+00:00",
+    "registeredImages": 0,
+    "sparsePoints": 0,
+    "observations": 0,
+    "meanTrackLength": 0,
+    "meanReprojectionError": 0,
+    "featureExtraction": {
+      "completed": true,
+      "useGPU": false,
+      "numThreads": 2
+    },
+    "featureMatching": {
+      "completed": true,
+      "method": "exhaustive",
+      "useGPU": false
+    },
+    "mapper": {
+      "completed": true
+    },
+    "analysis": {
+      "completed": true
+    }
+  },
+  "lichtfeld": {
+    "trainingStatus": "notStarted",
+    "iteration": 0,
+    "numSplats": 0
+  },
+  "export": {
+    "pointCloud": [],
+    "splats": [],
+    "html": [],
+    "usd": [],
+    "spz": [],
+    "sog": []
+  },
+  "render": {
+    "renderCount": 0
+  },
+  "validation": {
+    "lastValidationTime": "2026-09-18T21:36:14+00:00",
+    "validationStatus": "VALID",
+    "totalImages": 293,
+    "validImages": 293,
+    "warningImages": 0,
+    "invalidImages": 0,
+    "duplicateImages": 0
+  },
+  "reconstructionQC": {
+    "lastCheckedAt": "2026-09-19T03:53:50+00:00",
+    "state": "FAILED",
+    "totalImages": 0,
+    "registeredImages": 0,
+    "registrationPercentage": 0.0,
+    "cameras": 293,
+    "registeredCameras": 0,
+    "frames": 0,
+    "registeredFrames": 0,
+    "points": 0,
+    "observations": 0,
+    "meanTrackLength": null,
+    "meanObservationsPerImage": null,
+    "meanReprojectionErrorPx": null,
+    "cameraModels": [
+      "SIMPLE_RADIAL"
+    ],
+    "distortedCameraModels": [
+      "SIMPLE_RADIAL"
+    ],
+    "requiredFilesPresent": true,
+    "databaseValid": true,
+    "imageSourceValid": true,
+    "warnings": [],
+    "errors": [
+      "No images were registered."
+    ]
+  }
+}
