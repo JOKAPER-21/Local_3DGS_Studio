@@ -1,0 +1,409 @@
+# Local 3DGS Studio
+
+A free, fully local Windows 11 desktop application for orchestrating the
+complete 3D Gaussian Splatting workflow: project setup, image input,
+COLMAP reconstruction, LichtFeld Studio training, cleanup, export, and
+rendering.
+
+This build implements **Phase 01 (Foundation)**, **Phase 02 (Projects
+Setup)**, **Phase 03 (Input & Image Validation)**, **Phase 04 (COLMAP
+Integration)**, and **Phase 05 (Reconstruction QC)**, per the current
+specification. LichtFeld training, cleanup, export, and rendering are
+intentionally not implemented yet.
+
+## Principles
+
+- 100% local. No cloud services, no accounts, no subscription.
+- PySide6 / Qt6 only. PyQt5, PyQt6, and PySide2 are never used or mixed in.
+- Source data (`rawData/images`, `rawData/videos`) is never automatically
+  deleted, moved, renamed, or overwritten.
+- All long-running work runs off the GUI thread (`QProcess` + `QThread`);
+  the interface never freezes.
+- Every path inside a project is resolved through one central
+  `ProjectPathResolver` — GUI code never builds paths by hand.
+
+## Setup
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+```
+
+## Run
+
+```bash
+python run.py
+```
+
+## Test
+
+```bash
+pytest
+```
+
+## Project structure created by "Projects Setup"
+
+```
+<projectRoot>\<projectName>
+├── project.json
+├── rawData
+│   ├── images
+│   │   └── v01
+│   └── videos
+├── colmap
+│   └── v01
+├── export
+│   ├── pointCloud
+│   └── splats
+├── renders
+└── logs
+```
+
+`project.json` stores `projectRoot` conceptually as the only absolute
+path; every other path inside it (`images`, `colmap`, `pointCloudExport`,
+etc.) is relative. Moving the whole project folder to a different drive
+only requires reopening it from the new location — nothing else breaks.
+
+## Building a Windows executable
+
+```bash
+pyinstaller build.spec
+```
+
+The resulting executable is written to `dist/Local3DGSStudio/`.
+
+## Source layout
+
+```
+src/
+├── main.py                 entry point (also see run.py at the repo root)
+├── core/                    non-GUI logic
+│   ├── project_manager.py       facade: create/open/close/save projects
+│   ├── project_structure.py     folder tree creation/validation/repair
+│   ├── project_paths.py         ProjectPathResolver (single source of truth)
+│   ├── project_json.py          project.json data model + (de)serialization
+│   ├── config_manager.py        last_project.json + app settings
+│   ├── software_detector.py     COLMAP / LichtFeld / FFmpeg detection
+│   ├── process_manager.py       non-blocking QProcess wrapper
+│   ├── hardware_monitor.py      GPU / RAM / disk readings
+│   ├── input_manager.py         resolves/lists active project images & videos
+│   ├── image_validator.py       validation logic + QThread worker
+│   └── logger.py                application + per-project logging
+├── gui/                      PySide6 widgets
+│   ├── main_window.py            sidebar navigation, startup sequence
+│   ├── dashboard.py
+│   ├── projects_setup.py
+│   ├── input_panel.py             Input page (images/videos, new version)
+│   ├── image_validation.py        Image Validation page (progress, table, report)
+│   ├── settings.py
+│   ├── logs.py
+│   └── theme.py                  dark QSS stylesheet
+└── utils/
+    ├── validators.py             project name / version / root validation
+    ├── filesystem.py
+    ├── image_utils.py            Pillow-based dimension/corruption checks
+    ├── hash_utils.py             chunked SHA256 for duplicate detection
+    ├── colmap_parser.py          version/metrics regex parsing of COLMAP CLI output
+    └── windows_junction.py       mklink /J image junction (symlink fallback off-Windows)
+```
+
+## Phase 03: Input & Image Validation
+
+- **Input page** resolves the active version's `rawData/images/vNN` and
+  `rawData/videos` directories automatically from `project.json` — you never
+  browse for them on an existing project. Shows live image/video counts,
+  "Open Image/Video Folder" (Explorer), and "New Version" (scans existing
+  version folders, creates the next `vNN` image + COLMAP directories without
+  touching or duplicating any previous version).
+- **Image Validation page** runs format/corruption/resolution/file-size/
+  duplicate-filename/duplicate-content (SHA256) checks on a background
+  `QThread`, with a live progress bar, cancel support, summary cards, a
+  sortable per-file table, and a JSON report export. Results are written
+  back into `project.json` under a new `validation` section. No source file
+  is ever modified, moved, or deleted by validation.
+
+## Phase 04: COLMAP Integration
+
+- **COLMAP page** detects the configured `COLMAP.bat`/executable (runs a
+  harmless `-h` to confirm it's really COLMAP and parse its version/CUDA
+  build), shows a preflight check before anything runs, and drives the
+  five-stage pipeline — **Database → Feature Extraction → Feature Matching
+  → Mapper → Model Analysis** — either as "Run Full Pipeline" or one step
+  at a time.
+- Every stage runs through the existing Phase 01 `ManagedProcess`
+  (`QProcess`) wrapper, so the GUI never blocks; `.bat` files are launched
+  via `cmd.exe /c` on Windows. Live stdout/stderr, the exact resolved
+  command (with a copy-to-clipboard button), and cancellation are all
+  wired up.
+- The `rawData/images/vNN` source folder is never copied — a Windows
+  directory junction (`mklink /J`) is created at `colmap/vNN/images`
+  instead. An existing valid junction is left alone; a conflicting real
+  directory is reported as an error rather than removed automatically.
+- A stage is only marked complete when its real output file(s) exist on
+  disk (or, for feature extraction/matching, when the process both exited
+  0 *and* `database.db` is still present) — never merely because a process
+  started. An existing `database.db` or `sparse/` reconstruction is never
+  silently overwritten; the user must explicitly confirm replacing it.
+- `model_analyzer`'s output is parsed for registered/total images, points,
+  observations, mean track length, and mean reprojection error, displayed
+  in the GUI, and written into `project.json`'s `colmap` section (state
+  reaches `READY` once every image is registered).
+- Image-validation status gates the pipeline: `INVALID` blocks it outright;
+  `WARNING` (or not-yet-validated) asks for confirmation; `VALID` proceeds
+  silently.
+
+## Phase 05: Reconstruction QC
+
+- **Reconstruction QC page** (sidebar: "Reconstruction") sits between
+  COLMAP and the future LichtFeld hand-off. It never re-runs COLMAP or
+  touches any reconstruction file — it only reads real disk evidence
+  (database, image junction, `sparse/0/{cameras,images,points3D}.bin`)
+  plus the metrics `COLMAPManager` already parsed and persisted after
+  `model_analyzer` (Phase 04), through the `ReconstructionQC` class in
+  `src/core/reconstruction_qc.py`. No QC arithmetic lives in the GUI file.
+- Reads `cameras.bin` directly (`colmap_parser.parse_cameras_bin`) to
+  report camera model names and detect distortion (e.g. `SIMPLE_RADIAL`).
+  **Distortion is informational only** — it's surfaced as a warning and
+  in `distortedCameraModels`, but per the reference dataset's own
+  expected outcome, it never by itself downgrades a fully-registered,
+  low-error reconstruction below `READY`.
+- States: `NOT_READY` (nothing attempted), `FAILED` (missing/empty
+  database, missing sparse-model binaries, invalid image junction, zero
+  registered images, or zero points), `WARNING` (partial registration,
+  reprojection error above threshold, short mean track length, or a
+  metric that never got parsed — never silently treated as zero), and
+  `READY`.
+- Result is persisted to `project.json`'s `reconstructionQC` section
+  (`Refresh QC` button re-evaluates and re-persists); the page also
+  auto-refreshes whenever the COLMAP pipeline finishes, via a
+  `pipeline_finished` Qt signal on `ColmapPanel` — kept as a signal
+  rather than a direct call so `colmap_panel.py` never needs to import
+  QC code.
+- "Send to LichtFeld" is visible but disabled in this phase — it will be
+  wired up in Phase 06, gated on `QCResult.is_ready_for_lichtfeld`
+  (`READY` or `WARNING`; `FAILED`/`NOT_READY` block it).
+
+## Architecture revision: no persistent COLMAP image junction
+
+The project structure and COLMAP integration were revised after Phase 05:
+
+- **COLMAP now reads images directly from `rawData/images/vNN`.** The
+  earlier `colmap/vNN/images` Windows directory junction has been removed
+  entirely — `COLMAPManager` no longer has `images_junction_path()` or
+  `ensure_image_junction()`, and `feature_extractor`/`mapper` are invoked
+  with `--image_path` pointing straight at the authoritative image
+  directory. This decouples COLMAP workspace validation from junction
+  creation/detection, which was the root cause of the old "Image junction
+  is missing" QC error.
+- **`Reconstruction QC`** validates the authoritative image directory
+  itself (exists and is non-empty) instead of a junction — shown on the
+  QC page as "Image Source" rather than "Image Junction".
+- **`lichtFeld/vNN`** is now part of the permanent project structure
+  (created at project setup and at every new-version creation, alongside
+  `rawData/images/vNN` and `colmap/vNN`), reserved for LichtFeld
+  project/training metadata in a future phase. LichtFeld's own COLMAP
+  workspace compatibility (if it needs one) will be handled by an
+  application-managed *temporary* staging area outside the permanent
+  project folder — not implemented yet, since no LichtFeld workflow
+  exists in the app until Phase 06.
+- `src/utils/windows_junction.py` is kept as a general-purpose utility
+  (it may still be useful for that future temporary staging), but nothing
+  in the COLMAP pipeline calls it anymore.
+
+## Send to LichtFeld (first working slice)
+
+- **"Send to LichtFeld"** on the Reconstruction QC page is now wired up
+  (previously a disabled placeholder). It's enabled whenever QC is
+  `READY` or `WARNING` (`QCResult.is_ready_for_lichtfeld`) — a `WARNING`
+  from, say, an above-threshold reprojection error still produces a
+  usable reconstruction, so it isn't blocked.
+- `LichtFeldManager` (`src/core/lichtfeld_manager.py`) validates the
+  configured executable, builds a **temporary** staging workspace via
+  `src/core/lichtfeld_staging.py`, and launches LichtFeld
+  (`QProcess.startDetached`, non-blocking). The staging workspace lives
+  under `%TEMP%/Local3DGSStudio/lichtFeldStage/<project>/<version>` and
+  contains only two junctions/symlinks — `images` → the real
+  `rawData/images/vNN`, `sparse/0` → the real `colmap/vNN/sparse/0` —
+  never a copy. It can be deleted at any time with no data loss; nothing
+  in the permanent project structure changes because of it (still no
+  `colmap/vNN/images`).
+- Every step (executable check, image/sparse source paths, staging
+  result, launch command, PID) is logged to `logs/lichtfeld.log`, and no
+  failure is swallowed — a missing executable, a broken/incomplete
+  sparse model, or a launch failure each produce a specific error shown
+  directly on the page (no blocking dialogs, so the page stays safe for
+  headless/automated use).
+- **Known limitation, stated rather than guessed**: LichtFeld Studio's
+  command-line contract for auto-loading a COLMAP dataset was never
+  documented to this app, so it is launched with no arguments — the
+  staged dataset path is shown on success so it can be opened manually.
+  If LichtFeld supports a flag for this (e.g. `--dataset <path>`), tell
+  me and the launch command can be wired up precisely.
+
+## Reconstruction QC: SIMPLE_RADIAL vs. reprojection error
+
+A WARNING state does not necessarily mean the camera model is the
+problem. `SIMPLE_RADIAL`/distortion is always reported as an
+informational warning line but never contributes to the READY/WARNING
+decision by itself — only genuine quality signals do (partial
+registration, reprojection error above the configured threshold, short
+mean track length, or metrics that couldn't be parsed at all). If QC
+shows WARNING, check the warnings list on the page for the actual cause
+rather than assuming it's the camera model.
+
+## Professional GUI Redesign (Blender-inspired shell)
+
+The interface was restructured into a professional DCC-style shell.
+**Every existing page's internal logic is unchanged** — this was a
+presentation-layer change only, verified by a full regression run before
+and after (211/211 tests passing).
+
+- **Menu bar**: File / Workflow / Render / Logs / Settings. `Workflow`
+  has direct items for Input and Image Validation, plus submenus for
+  COLMAP (Feature Extraction / Feature Matching / Mapper / Model
+  Analysis / Run Pipeline / Stop), Reconstruction (Overview / Quality
+  Control / Sparse Point Cloud / Camera Poses), LichtFeld (Prepare Scene
+  / Open in LichtFeld / Scene Information), Training, and Cleanup. Every
+  menu action calls the same existing methods the sidebar/buttons always
+  called (`ColmapPanel._on_run_selected_step`, `LichtFeldPage`'s
+  handlers, etc.) — no new command logic.
+- **Main toolbar**: New/Open/Save Project, Run, Stop, Refresh, Open
+  Console. Run/Stop enabled state is read directly from
+  `ColmapPanel._running_full_pipeline` (existing state, not duplicated).
+- **Sidebar**: a pinned "Dashboard / Projects Setup" section above a
+  "WORKFLOW" section (Input → Image Validation → COLMAP → Reconstruction
+  → LichtFeld → Training → Cleanup). Each workflow item is prefixed with
+  a status glyph (`●` ready/complete, `◐` warning, `○` neutral) read
+  **only** from already-persisted `project.json` fields (image count,
+  validation status, COLMAP analysis completion, QC state) — never
+  recomputed. Sidebar and the Workflow menu always drive the same
+  `_activate_page(name)` call, so they can't drift out of sync.
+- **Reconstruction workspace** (`src/gui/reconstruction_workspace.py`,
+  new): a tab strip wrapping the existing `ReconstructionQCPage`
+  unchanged as "Overview / Quality Control", plus two new tabs — *Sparse
+  Point Cloud* and *Camera Poses* — that show real counts from the last
+  QC run (via the new `QCResult.from_project_json_dict` core helper) and
+  say plainly that a 3D viewport isn't implemented yet, rather than
+  faking one. This keeps the sparse COLMAP point cloud clearly distinct
+  from a future trained Gaussian Splat preview.
+- **LichtFeld workspace** (`src/gui/lichtfeld_panel.py`, new): thin view
+  over the existing `LichtFeldManager`; "Prepare Scene" now calls a new
+  `LichtFeldManager.prepare_scene()` (validates + stages without
+  launching — factored out of `send_to_lichtfeld()` so both share every
+  check, nothing duplicated), "Open in LichtFeld" calls the existing
+  `send_to_lichtfeld()`.
+- **Console**: the existing `LogsPage` re-hosted in a collapsible
+  `QDockWidget` instead of a full page — identical log-tailing code,
+  just a different container. `Logs` menu items switch its file selector
+  and expand it if collapsed.
+- **Settings**: the existing `SettingsPage` re-hosted in a `QDialog`
+  instead of a full page. All four `Settings` submenu items open the
+  same dialog for now (there's only one implemented settings surface);
+  noted in code rather than fabricated as four distinct panels.
+- **Status bar**: project/version/image-count/reconstruction-state on
+  the left (from persisted `project.json`), GPU/VRAM/RAM on the right
+  (via the existing `hardware_monitor.read_system_info`, the same
+  function the Dashboard already used).
+- **Theme**: reduced border-radius throughout (cards 8px→4px, buttons
+  4px→3px), explicit `QLabel { background: transparent; }`, and new
+  `QMenuBar`/`QMenu`/`workflowSidebar`/console/status-bar rules — all in
+  `theme.py`, so it cascades to every existing page without touching
+  their files.
+- **Keyboard shortcuts**: Ctrl+N/O/S (File actions), F5 (refresh current
+  workspace), Esc (stop the running COLMAP pipeline, when one is
+  active).
+
+New tests: `tests/test_main_window.py` (21 tests) covering menu/toolbar
+construction, sidebar↔menu synchronization, workspace switching,
+placeholder pages, console collapse/expand and log selection, status bar
+updates, and — critically — that activating a workspace still drives the
+real backend (project loading, `ReconstructionQC.run()`, the real
+`LichtFeldManager`, the `pipeline_finished` signal chain) rather than a
+second GUI-only notion of state.
+
+## Professional Desktop UI Redesign v04 (Purple DCC theme)
+
+Further simplified per the v04 spec — this removed navigation duplication
+rather than adding more chrome:
+
+- **No main menu bar, no separate toolbar.** Their actions either moved
+  into the workspace where they're actually used (COLMAP's own Run/Stop,
+  LichtFeld's own Prepare Scene/Open buttons) or onto the Dashboard as
+  contextual actions (New Project, Open Project). A slim read-only top
+  bar shows `Local 3DGS Studio | project | version | workspace | status`.
+- **Sidebar**: a single pinned `Dashboard` entry, a `WORKFLOW` section
+  (Image → COLMAP → Reconstruction → LichtFeld → Training → Cleanup,
+  each with a small QPainter-drawn icon in the theme accent — see
+  `src/gui/icons.py`, no binary asset files), and a muted `FUTURE`
+  section (Render, Export). No persistent "Open Project..." or "Project
+  Setup" button anywhere in the sidebar.
+- **Image workspace** (`src/gui/image_workspace.py`, new): combines the
+  existing `InputPage` and `ImageValidationPage` — unchanged — into one
+  workspace. Validation (the primary purpose) is centered; the input
+  page is relocated into a fixed-width "PROPERTIES" column on the right.
+- **COLMAP workspace**: restructured into center (pipeline status,
+  Run/Stop controls, command preview, metrics, and Live Output filling
+  all remaining vertical space) + a "PROPERTIES" column (COLMAP status,
+  Input, and the existing `ColmapSettingsWidget` for feature
+  extraction/matching settings) — all the same widgets and logic, just
+  relocated.
+- **Reconstruction workspace**: "Send to LichtFeld" removed entirely —
+  LichtFeld actions now live only in the LichtFeld workspace, never
+  duplicated.
+- **Console**: now restricted to the bottom dock area only
+  (`setAllowedAreas(Qt.BottomDockWidgetArea)`, no floating/left/right).
+- **Theme**: "Local3DGS Purple Professional" (`#9D00FF` accent) applied
+  throughout `theme.py`. One judgment call, stated in that file's
+  docstring: the spec's `text.primary/secondary/heading/label` are all
+  the accent purple, which applied literally to every label would make
+  ordinary sentences and metric values purple-on-near-black. The accent
+  governs headings, section labels, sidebar/nav, active/selected states,
+  buttons, and focus borders (exactly as specified); body/value text
+  uses the spec's own `#D8D8D8` (its choice for `properties.value` and
+  `console.text`) for readability.
+
+`tests/test_main_window.py` was rewritten to match this shell (37
+tests): no menu bar/toolbar, sidebar structure and icons, Image+
+Validation combination, COLMAP center/Properties split with an
+expanding Live Output, no Send-to-LichtFeld button anywhere in
+Reconstruction, LichtFeld-only actions, bottom-only console docking,
+no duplicate primary controls, Dashboard-driven project actions, and
+the same backend-reuse assertions as before (real QC, real
+`LichtFeldManager`, persisted-state-only sidebar indicators, project
+reopening).
+
+## Visual refinement: corner-radius/spacing system + text-color discipline
+
+`theme.py` was revised to match a stricter design spec:
+
+- **Corner radius**: panels/cards/dialogs/log view now 10px (was 4px);
+  buttons/inputs 8px; sidebar rows and tabs 6px — one consistent system
+  instead of a single flat radius everywhere.
+- **Text color discipline corrected**: page titles and section headings
+  are now white/light-gray (`#F2F2F5`/`#B9BCC7`), not purple. The earlier
+  theme pass made headings purple as a judgment call about the *previous*
+  spec's ambiguity; this spec is explicit — "Do not use purple for all
+  text. Purple should communicate importance or interaction," not text
+  hierarchy — so purple now marks only the active sidebar item, primary
+  buttons, focused inputs, the selected tab, and status colors (ready =
+  purple, warning = amber, error = red).
+- **Spacing** snapped to the 4/8/12/16/20/24px scale throughout paddings
+  and margins.
+- **Tabs** reworked to a cleaner underline style (no boxed border around
+  every tab) — the selected tab gets a purple underline + purple text;
+  inactive tabs are plain light-gray text; hover is a subtle background
+  tint.
+- **Honest scoping note**: Qt's `border-radius` on `QMainWindow`/`QDialog`
+  does not round the actual OS window chrome unless the window goes
+  frameless with a fully custom-painted title bar (its own drag/resize/
+  minimize/maximize handling) — a much larger change than a stylesheet.
+  This pass rounds every window's *content* (panels, cards, dialog
+  frames, buttons, tabs) but the outer window rectangle still has normal
+  OS corners. Said plainly here rather than silently skipped.
+- **Not built in this pass**: the design prompt's detachable-tab /
+  floating-window system (Detach / Dock / Close, multi-panel docking)
+  doesn't exist anywhere in the app yet — there's one dock (the bottom
+  console) and no tab-based multi-panel layout to detach. Building that
+  framework from scratch is a separate, substantial architecture change,
+  not a restyle, so it wasn't fabricated here.

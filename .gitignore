@@ -19,6 +19,7 @@ dist/
 Local3DGSStudio_v10/Local_3DGS_Studio/
 
 # Large binary artifacts
+*.blend
 *.db
 *.bin
 *.ply
